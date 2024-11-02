@@ -167,15 +167,30 @@ export default {
       graph: []
     }
   },
-  mounted() {
-    this.getCoins();
+  created() {
+    const tickersData = localStorage.getItem('cryptocoins-list');
+
+    if(tickersData) {
+      this.tickers = JSON.parse(tickersData);
+    }
+
+    this.tickers.forEach(tick => this.subscribeToUpdates(tick.name));
   },
   methods: {
-    async getCoins() {
-      await fetch('https://min-api.cryptocompare.com/data/all/coinlist?summary=true')
-          .then(response => response.json())
-          .then(data => console.log(data.Data));
-    },
+   subscribeToUpdates(tickerName) {
+     setInterval(async () => {
+       const f = await fetch (
+           `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=2c22ff7da8fb11a31f749e6a4e61191fef206f58da2e5f296777f7979a6b290c`
+
+       );
+       const data = await f.json();
+       this.tickers.find(tick => tick.name === tickerName).price = data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+       if(this.sel?.name === tickerName) {
+         this.graph.push(data.USD);
+       }
+
+     },6000);
+   },
     add() {
       const currentTicker = {
         id: this.tickers.length + 1,
@@ -183,29 +198,17 @@ export default {
         price: '-'
       };
       this.tickers.push(currentTicker);
-      setInterval(async () => {
-        const f = await fetch (
-            // `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=2c22ff7da8fb11a31f749e6a4e61191fef206f58da2e5f296777f7979a6b290c`
-            `https://min-api.cryptocompare.com/data/all/coinlist?summary=true`
-        );
-        const data = await f.json();
 
-        console.log('**** data coins ',data.Data);
-        this.tickers.find(tick => tick.name === currentTicker.name).price = data.Data.USD > 1 ? data.USD.toFixed(2) : data.USD;
+      localStorage.setItem('cryptocoins-list', JSON.stringify(this.tickers));
+      this.subscribeToUpdates(currentTicker.name);
 
-        if(this.sel?.name === currentTicker.name) {
-          this.graph.push(data.USD);
-        }
-
-      },12000);
-      this.ticker = '';
     },
-    select(tick) {
-      this.sel = tick;
+    select(ticker) {
+      this.sel = ticker;
       this.graph = [];
     },
-    handleDelete(tickId) {
-      this.tickers = this.tickers.filter(tick => tick.id !== tickId);
+    handleDelete(tickerId) {
+      this.tickers = this.tickers.filter(tick => tick.id !== tickerId);
     },
 
     normalizeGraph() {
