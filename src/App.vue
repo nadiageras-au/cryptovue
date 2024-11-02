@@ -70,14 +70,25 @@
       <template v-if="tickers.length">
         <hr class="w-full border-t border-gray-600 my-4"/>
         <div>
-          <button class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">Назад</button>
-          <button class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">Вперед</button>
-          <div class="my-4">Фильтр: <input v-model="filter" /></div>
+          <button
+              class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+              v-if="page > 1"
+              @click="page = page - 1"
+          >
+            Назад
+          </button>
+          <button
+              class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+              v-if="hasNextPage"
+              @click="page = page + 1">
+            Вперед
+          </button>
+          <div class="my-4">Фильтр: <input v-model="filter"/></div>
         </div>
         <hr class="w-full border-t border-gray-600 my-4"/>
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div
-              v-for="tick in filteredTickers"
+              v-for="tick in filteredTickers()"
               :key="tick"
               @click="select(tick)"
               :class=" sel === tick ? 'border-4' : ''"
@@ -119,7 +130,7 @@
 
       <section v-if="sel" class="relative">
         <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
-          {{sel.name}} - USD
+          {{ sel.name }} - USD
         </h3>
         <div class="flex items-end border-gray-600 border-b border-l h-64">
           <div
@@ -172,36 +183,54 @@ export default {
       sel: null,
       graph: [],
       page: 1,
-      filter: ""
+      filter: "",
+      hasNextPage: true
     }
   },
   created() {
-    const tickersData = localStorage.getItem('cryptocoins-list');
+    const windowData = Object.fromEntries(new URL(window.location).searchParams.entries());
 
-    if(tickersData) {
-      this.tickers = JSON.parse(tickersData);
+    if (windowData.filter) {
+      this.filter = windowData.filter;
     }
 
-    this.tickers.forEach(tick => this.subscribeToUpdates(tick.name));
+    if (windowData.page) {
+      this.page = parseInt(windowData.page);
+    }
+    const tickersData = localStorage.getItem('cryptocoins-list');
+    console.log('tickersData ', tickersData);
+    if (tickersData) {
+      this.tickers = JSON.parse(tickersData);
+      this.tickers.forEach(ticker => {
+        this.subscribeToUpdates(ticker.name)
+      });
+    }
   },
   methods: {
     filteredTickers() {
-      return this.tickers.filter(tick => tick.name.includes(this.filter));
+      const start = (this.page - 1) * 6;
+      const end = this.page * 6;
+      const filteredTickers = this.tickers.filter(tick => tick.name.includes(this.filter));
+
+      this.hasNextPage = filteredTickers.length > end;
+
+      return filteredTickers.slice(start, end);
     },
-   subscribeToUpdates(tickerName) {
-     setInterval(async () => {
-       const f = await fetch (
-           `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=2c22ff7da8fb11a31f749e6a4e61191fef206f58da2e5f296777f7979a6b290c`
-
-       );
-       const data = await f.json();
-       this.tickers.find(tick => tick.name === tickerName).price = data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
-       if(this.sel?.name === tickerName) {
-         this.graph.push(data.USD);
-       }
-
-     },15000);
-   },
+    subscribeToUpdates(tickerName) {
+      setInterval(async () => {
+        const f = await fetch(
+            `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=2c22ff7da8fb11a31f749e6a4e61191fef206f58da2e5f296777f7979a6b290c`
+        );
+        const data = await f.json();
+        if (data.USD !== undefined) {
+          this.tickers.find(tick => tick.name === tickerName).price = data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+        }
+        if (this.sel?.name === tickerName) {
+          this.graph.push(data.USD);
+        }
+      }, 60000);
+      this.ticker = "";
+    },
     add() {
       const currentTicker = {
         id: this.tickers.length + 1,
@@ -209,7 +238,7 @@ export default {
         price: '-'
       };
       this.tickers.push(currentTicker);
-
+      this.filter = "";
       localStorage.setItem('cryptocoins-list', JSON.stringify(this.tickers));
       this.subscribeToUpdates(currentTicker.name);
 
@@ -226,8 +255,21 @@ export default {
       const maxValue = Math.max(...this.graph);
       const minValue = Math.min(...this.graph);
       return this.graph.map(
-      price  => 5+ ((price - minValue) * 95 / (maxValue - minValue))
+          price => 5 + ((price - minValue) * 95 / (maxValue - minValue))
       )
+    }
+  },
+  watch: {
+    filter() {
+      this.page = 1;
+      window.history.pushState(null, document.title, `${window.location.pathname}?filter=${this.filter}&page=${this.page}`);
+    },
+    page() {
+      window.history.pushState(
+          null,
+          document.title,
+          `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
+      );
     }
   }
 
